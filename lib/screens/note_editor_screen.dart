@@ -12,6 +12,7 @@ import 'package:ai_note_taking_app/providers/note_provider.dart';
 import 'package:ai_note_taking_app/widgets/mindmap_widget.dart';
 import 'package:ai_note_taking_app/theme/app_theme.dart';
 import 'package:ai_note_taking_app/theme/app_animations.dart';
+import 'package:ai_note_taking_app/config/api_config.dart';
 
 class NoteEditorScreen extends StatefulWidget {
   final Note? note;
@@ -43,6 +44,7 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
   bool _isGeneratingSummary = false;
   bool _isGeneratingQuiz = false;
   bool _isGeneratingMindmap = false;
+  bool _isGeneratingAudio = false;
 
   @override
   void initState() {
@@ -86,6 +88,15 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
       if (mounted) {
         setState(() {
           _isPlaying = state.playing;
+        });
+      }
+    });
+
+    // Listen for playback completion
+    _audioPlayer.processingStateStream.listen((state) {
+      if (state == ProcessingState.completed && mounted) {
+        setState(() {
+          _isPlaying = false;
         });
       }
     });
@@ -349,17 +360,23 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
     }
 
     setState(() {
-      _isLoading = true;
+      _isGeneratingAudio = true;
       _error = null;
     });
 
     try {
+      // Stop any existing playback
+      await _audioPlayer.stop();
+      setState(() {
+        _isPlaying = false;
+      });
+
+      // Generate new audio
       final Map<String, dynamic>? response = await ApiService.textToSpeech(_contentController.text);
       
       if (response != null && response['audio_url'] != null) {
         setState(() {
           _audioUrl = '/api/audio/tts_output.wav';
-          _isPlaying = false; // Reset playing state
         });
       } else {
         throw Exception('Failed to generate audio');
@@ -370,13 +387,13 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error generating audio: $e')),
+          SnackBar(content: Text('Error with audio: $e')),
         );
       }
     } finally {
       if (mounted) {
         setState(() {
-          _isLoading = false;
+          _isGeneratingAudio = false;
         });
       }
     }
@@ -384,35 +401,33 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
 
   Future<void> _togglePlayPause() async {
     try {
+      if (_audioUrl == null) {
+        await _textToSpeech();
+        return;
+      }
+
       if (_isPlaying) {
         await _audioPlayer.pause();
       } else {
-        if (_audioUrl != null) {
-          // Configure audio session
-          final session = await AudioSession.instance;
-          await session.configure(const AudioSessionConfiguration.speech());
+        // Configure audio session
+        final session = await AudioSession.instance;
+        await session.configure(const AudioSessionConfiguration.speech());
 
-          // Stop any existing playback
-          await _audioPlayer.stop();
-
-          // Set up the audio source with the correct URL
+        // If we're starting fresh, set up the audio source
+        if (_audioPlayer.processingState == ProcessingState.idle) {
           final audioSource = AudioSource.uri(
-            Uri.parse('http://127.0.0.1:8000$_audioUrl'),
+            Uri.parse('${ApiConfig.baseUrl}$_audioUrl'),
             headers: {
               'Cache-Control': 'no-cache',
               'Pragma': 'no-cache',
             },
           );
-
-          // Set the audio source and play
           await _audioPlayer.setAudioSource(audioSource);
-          await _audioPlayer.play();
-        } else {
-          await _textToSpeech();
         }
+
+        await _audioPlayer.play();
       }
     } catch (e) {
-      print('Error toggling play/pause: $e');
       setState(() {
         _error = e.toString();
         _isPlaying = false;
@@ -881,207 +896,263 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                                       onPressed: _isGeneratingMindmap ? null : () async { await _generateMindmap(); },
                                       isLoading: _isGeneratingMindmap,
                                     ),
+                                    AIFeatureButton(
+                                      text: _audioUrl == null ? 'Text to Speech' : (_isPlaying ? 'Pause' : 'Play'),
+                                      icon: _audioUrl == null ? Icons.record_voice_over : (_isPlaying ? Icons.pause_circle : Icons.play_circle),
+                                      onPressed: _isGeneratingAudio ? null : () async { await _togglePlayPause(); },
+                                      isLoading: _isGeneratingAudio,
+                                    ),
                                   ],
                                 ),
                               ],
                             ),
                           ),
                         ),
-                        if (_summary != null) ...[
-                          const SizedBox(height: AppTheme.largeSpacing),
+                        const SizedBox(height: AppTheme.largeSpacing),
+                        if (_summary == null && _quiz == null && _mindmap == null)
                           AppAnimations.slideIn(
                             offset: const Offset(0, 60),
-                            child: Card(
-                              elevation: 4,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(AppTheme.largeRadius),
-                              ),
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(AppTheme.largeRadius),
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: isDark ? AppTheme.darkCardGradient : AppTheme.lightCardGradient,
-                                  ),
+                            child: Container(
+                              padding: const EdgeInsets.all(AppTheme.largeSpacing),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: isDark ? AppTheme.darkCardGradient : AppTheme.lightCardGradient,
                                 ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(AppTheme.mediumSpacing),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.all(AppTheme.smallSpacing),
-                                            decoration: BoxDecoration(
-                                              color: AppTheme.primaryColor.withOpacity(0.1),
-                                              borderRadius: BorderRadius.circular(AppTheme.smallRadius),
+                                borderRadius: BorderRadius.circular(AppTheme.largeRadius),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AppTheme.shadowColor,
+                                    blurRadius: AppTheme.mediumElevation,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Column(
+                                children: [
+                                  Icon(
+                                    Icons.auto_awesome,
+                                    size: 48,
+                                    color: AppTheme.primaryColor,
+                                  ),
+                                  const SizedBox(height: AppTheme.mediumSpacing),
+                                  Text(
+                                    'No AI Features Generated Yet',
+                                    style: theme.textTheme.headlineSmall?.copyWith(
+                                      color: AppTheme.primaryColor,
+                                      fontWeight: AppTheme.boldWeight,
+                                    ),
+                                  ),
+                                  const SizedBox(height: AppTheme.smallSpacing),
+                                  Text(
+                                    'Use the AI features above to generate summary, quiz, or mind map',
+                                    style: theme.textTheme.titleMedium?.copyWith(
+                                      color: theme.colorScheme.onSurface.withOpacity(0.8),
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        else ...[
+                          if (_summary != null) ...[
+                            const SizedBox(height: AppTheme.largeSpacing),
+                            AppAnimations.slideIn(
+                              offset: const Offset(0, 60),
+                              child: Card(
+                                elevation: 4,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(AppTheme.largeRadius),
+                                ),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(AppTheme.largeRadius),
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: isDark ? AppTheme.darkCardGradient : AppTheme.lightCardGradient,
+                                    ),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(AppTheme.mediumSpacing),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.all(AppTheme.smallSpacing),
+                                              decoration: BoxDecoration(
+                                                color: AppTheme.primaryColor.withOpacity(0.1),
+                                                borderRadius: BorderRadius.circular(AppTheme.smallRadius),
+                                              ),
+                                              child: Icon(
+                                                Icons.summarize,
+                                                color: AppTheme.primaryColor,
+                                              ),
                                             ),
-                                            child: Icon(
-                                              Icons.summarize,
-                                              color: AppTheme.primaryColor,
+                                            const SizedBox(width: AppTheme.mediumSpacing),
+                                            Text(
+                                              'Summary',
+                                              style: theme.textTheme.titleLarge?.copyWith(
+                                                color: AppTheme.primaryColor,
+                                                fontWeight: AppTheme.boldWeight,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: AppTheme.mediumSpacing),
+                                        Container(
+                                          padding: const EdgeInsets.all(AppTheme.mediumSpacing),
+                                          decoration: BoxDecoration(
+                                            color: theme.colorScheme.surface.withOpacity(0.5),
+                                            borderRadius: BorderRadius.circular(AppTheme.smallRadius),
+                                            border: Border.all(
+                                              color: AppTheme.borderColor,
                                             ),
                                           ),
-                                          const SizedBox(width: AppTheme.mediumSpacing),
-                                          Text(
-                                            'Summary',
-                                            style: theme.textTheme.titleLarge?.copyWith(
-                                              color: AppTheme.primaryColor,
-                                              fontWeight: AppTheme.boldWeight,
+                                          child: Text(
+                                            _summary!,
+                                            style: theme.textTheme.bodyLarge?.copyWith(
+                                              height: AppTheme.normalHeight,
                                             ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: AppTheme.mediumSpacing),
-                                      Container(
-                                        padding: const EdgeInsets.all(AppTheme.mediumSpacing),
-                                        decoration: BoxDecoration(
-                                          color: theme.colorScheme.surface.withOpacity(0.5),
-                                          borderRadius: BorderRadius.circular(AppTheme.smallRadius),
-                                          border: Border.all(
-                                            color: AppTheme.borderColor,
                                           ),
                                         ),
-                                        child: Text(
-                                          _summary!,
-                                          style: theme.textTheme.bodyLarge?.copyWith(
-                                            height: AppTheme.normalHeight,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
-                        if (_quiz != null) ...[
-                          const SizedBox(height: AppTheme.largeSpacing),
-                          AppAnimations.slideIn(
-                            offset: const Offset(0, 80),
-                            child: Card(
-                              elevation: 4,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(AppTheme.largeRadius),
-                              ),
-                              child: Container(
-                                decoration: BoxDecoration(
+                          ],
+                          if (_quiz != null) ...[
+                            const SizedBox(height: AppTheme.largeSpacing),
+                            AppAnimations.slideIn(
+                              offset: const Offset(0, 80),
+                              child: Card(
+                                elevation: 4,
+                                shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(AppTheme.largeRadius),
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: isDark ? AppTheme.darkCardGradient : AppTheme.lightCardGradient,
-                                  ),
                                 ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(AppTheme.mediumSpacing),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.all(AppTheme.smallSpacing),
-                                            decoration: BoxDecoration(
-                                              color: AppTheme.primaryColor.withOpacity(0.1),
-                                              borderRadius: BorderRadius.circular(AppTheme.smallRadius),
-                                            ),
-                                            child: Icon(
-                                              Icons.quiz,
-                                              color: AppTheme.primaryColor,
-                                            ),
-                                          ),
-                                          const SizedBox(width: AppTheme.mediumSpacing),
-                                          Text(
-                                            'Quiz',
-                                            style: theme.textTheme.titleLarge?.copyWith(
-                                              color: AppTheme.primaryColor,
-                                              fontWeight: AppTheme.boldWeight,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: AppTheme.mediumSpacing),
-                                      _buildQuizSection(_quizData!),
-                                    ],
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(AppTheme.largeRadius),
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: isDark ? AppTheme.darkCardGradient : AppTheme.lightCardGradient,
+                                    ),
                                   ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                        if (_mindmap != null) ...[
-                          const SizedBox(height: AppTheme.largeSpacing),
-                          AppAnimations.slideIn(
-                            offset: const Offset(0, 100),
-                            child: Card(
-                              elevation: 4,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(AppTheme.largeRadius),
-                              ),
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(AppTheme.largeRadius),
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: isDark ? AppTheme.darkCardGradient : AppTheme.lightCardGradient,
-                                  ),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(AppTheme.mediumSpacing),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.all(AppTheme.smallSpacing),
-                                            decoration: BoxDecoration(
-                                              color: AppTheme.primaryColor.withOpacity(0.1),
-                                              borderRadius: BorderRadius.circular(AppTheme.smallRadius),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(AppTheme.mediumSpacing),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.all(AppTheme.smallSpacing),
+                                              decoration: BoxDecoration(
+                                                color: AppTheme.primaryColor.withOpacity(0.1),
+                                                borderRadius: BorderRadius.circular(AppTheme.smallRadius),
+                                              ),
+                                              child: Icon(
+                                                Icons.quiz,
+                                                color: AppTheme.primaryColor,
+                                              ),
                                             ),
-                                            child: Icon(
-                                              Icons.account_tree,
-                                              color: AppTheme.primaryColor,
+                                            const SizedBox(width: AppTheme.mediumSpacing),
+                                            Text(
+                                              'Quiz',
+                                              style: theme.textTheme.titleLarge?.copyWith(
+                                                color: AppTheme.primaryColor,
+                                                fontWeight: AppTheme.boldWeight,
+                                              ),
                                             ),
-                                          ),
-                                          const SizedBox(width: AppTheme.mediumSpacing),
-                                          Text(
-                                            'Mind Map',
-                                            style: theme.textTheme.titleLarge?.copyWith(
-                                              color: AppTheme.primaryColor,
-                                              fontWeight: AppTheme.boldWeight,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: AppTheme.mediumSpacing),
-                                      Container(
-                                        decoration: BoxDecoration(
-                                          color: theme.colorScheme.surface.withOpacity(0.5),
-                                          borderRadius: BorderRadius.circular(AppTheme.smallRadius),
-                                          border: Border.all(
-                                            color: AppTheme.borderColor,
-                                          ),
+                                          ],
                                         ),
-                                        child: _isGeneratingMindmap
-                                            ? const Center(
-                                                child: Padding(
-                                                  padding: EdgeInsets.all(AppTheme.mediumSpacing),
-                                                  child: CircularProgressIndicator(),
-                                                ),
-                                              )
-                                            : MindMapWidget(mindMapData: _mindmap),
-                                      ),
-                                    ],
+                                        const SizedBox(height: AppTheme.mediumSpacing),
+                                        _buildQuizSection(_quizData!),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
+                          ],
+                          if (_mindmap != null) ...[
+                            const SizedBox(height: AppTheme.largeSpacing),
+                            AppAnimations.slideIn(
+                              offset: const Offset(0, 100),
+                              child: Card(
+                                elevation: 4,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(AppTheme.largeRadius),
+                                ),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(AppTheme.largeRadius),
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: isDark ? AppTheme.darkCardGradient : AppTheme.lightCardGradient,
+                                    ),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(AppTheme.mediumSpacing),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.all(AppTheme.smallSpacing),
+                                              decoration: BoxDecoration(
+                                                color: AppTheme.primaryColor.withOpacity(0.1),
+                                                borderRadius: BorderRadius.circular(AppTheme.smallRadius),
+                                              ),
+                                              child: Icon(
+                                                Icons.account_tree,
+                                                color: AppTheme.primaryColor,
+                                              ),
+                                            ),
+                                            const SizedBox(width: AppTheme.mediumSpacing),
+                                            Text(
+                                              'Mind Map',
+                                              style: theme.textTheme.titleLarge?.copyWith(
+                                                color: AppTheme.primaryColor,
+                                                fontWeight: AppTheme.boldWeight,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: AppTheme.mediumSpacing),
+                                        Container(
+                                          decoration: BoxDecoration(
+                                            color: theme.colorScheme.surface.withOpacity(0.5),
+                                            borderRadius: BorderRadius.circular(AppTheme.smallRadius),
+                                            border: Border.all(
+                                              color: AppTheme.borderColor,
+                                            ),
+                                          ),
+                                          child: _isGeneratingMindmap
+                                              ? const Center(
+                                                  child: Padding(
+                                                    padding: EdgeInsets.all(AppTheme.mediumSpacing),
+                                                    child: CircularProgressIndicator(),
+                                                  ),
+                                                )
+                                              : MindMapWidget(mindMapData: _mindmap),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                         if (_error != null) ...[
                           const SizedBox(height: AppTheme.mediumSpacing),
@@ -1631,6 +1702,62 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildFeatureCard({
+    required IconData icon,
+    required String title,
+    required String description,
+    required Color color,
+  }) {
+    final theme = Theme.of(context);
+    return Container(
+      width: 200,
+      padding: const EdgeInsets.all(AppTheme.mediumSpacing),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(AppTheme.mediumRadius),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.1),
+            blurRadius: AppTheme.smallElevation,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(AppTheme.smallSpacing),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              color: color,
+              size: 24,
+            ),
+          ),
+          const SizedBox(height: AppTheme.smallSpacing),
+          Text(
+            title,
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: color,
+              fontWeight: AppTheme.semiBoldWeight,
+            ),
+          ),
+          const SizedBox(height: AppTheme.smallSpacing),
+          Text(
+            description,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurface.withOpacity(0.7),
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }

@@ -14,7 +14,7 @@ dependencies:
   http: ^1.1.0
   shared_preferences: ^2.2.2
   intl: ^0.18.1
-  file_picker: ^6.1.1
+  file_picker: 10.1.9
   path_provider: ^2.1.1
   just_audio: ^0.9.36
   flutter_markdown: ^0.6.18

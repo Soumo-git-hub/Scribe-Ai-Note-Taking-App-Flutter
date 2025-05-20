@@ -7,8 +7,8 @@ plugins {
 
 android {
     namespace = "com.example.ai_note_taking_app"
-    compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    compileSdk = rootProject.extra.get("compileSdkVersion") as Int
+    ndkVersion = rootProject.extra.get("ndkVersion") as String
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -24,16 +24,20 @@ android {
         applicationId = "com.example.ai_note_taking_app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        minSdk = rootProject.extra.get("minSdkVersion") as Int
+        targetSdk = rootProject.extra.get("targetSdkVersion") as Int
+        versionCode = 1
+        versionName = "1.0.0"
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        debug {
+            isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("debug")
         }
     }

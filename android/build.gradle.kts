@@ -1,3 +1,12 @@
+buildscript {
+    extra.apply {
+        set("compileSdkVersion", 35)
+        set("targetSdkVersion", 35)
+        set("minSdkVersion", 21)
+        set("ndkVersion", "27.0.12077973")
+    }
+}
+
 allprojects {
     repositories {
         google()
@@ -12,6 +21,7 @@ subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
 }
+
 subprojects {
     project.evaluationDependsOn(":app")
 }

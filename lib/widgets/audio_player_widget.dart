@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:audio_session/audio_session.dart';
+import '../config/api_config.dart';
 
 class AudioPlayerWidget extends StatefulWidget {
   final String audioUrl;
@@ -34,7 +35,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
 
       // Set up the audio source with a fixed URL
       final audioSource = AudioSource.uri(
-        Uri.parse('http://127.0.0.1:8000/api/audio/tts_output.wav'),
+        Uri.parse('${ApiConfig.baseUrl}/api/audio/tts_output.wav'),
         headers: {
           'Cache-Control': 'no-cache',
           'Pragma': 'no-cache',
@@ -93,7 +94,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
       } else {
         // Reload the audio source before playing
         final audioSource = AudioSource.uri(
-          Uri.parse('http://127.0.0.1:8000/api/audio/tts_output.wav'),
+          Uri.parse('${ApiConfig.baseUrl}/api/audio/tts_output.wav'),
           headers: {
             'Cache-Control': 'no-cache',
             'Pragma': 'no-cache',

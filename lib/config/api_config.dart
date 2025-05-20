@@ -1,6 +1,6 @@
 class ApiConfig {
   // For web, we need to use the full URL including http://
-  static const String baseUrl = 'http://127.0.0.1:8000';  // Using http protocol
+  static const String baseUrl = 'http://192.168.1.2:8000';  // Using computer's IP address
   
   // API endpoints
   static const String loginEndpoint = '/api/auth/login';
