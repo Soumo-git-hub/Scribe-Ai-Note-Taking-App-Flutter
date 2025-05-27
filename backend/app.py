@@ -45,6 +45,10 @@ from flutter_config import (
 logging.config.dictConfig(LOGGING_CONFIG)
 logger = logging.getLogger(__name__)
 
+# Get environment variables
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
+PORT = int(os.getenv("PORT", 8000))
+
 # Application startup and shutdown events
 # Import the init_db function from database module
 from database import (
@@ -60,7 +64,6 @@ from database import (
 )
 
 # JWT Configuration
-SECRET_KEY = "your-secret-key-here"  # In production, use a secure secret key
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -232,7 +235,7 @@ def get_api_config():
 
 # API endpoints for notes
 @app.get("/api/notes", response_model=Dict[str, List[Dict[str, Any]]])
-async def api_get_notes():
+async def api_get_notes(current_user: User = Depends(get_current_user)):
     try:
         notes = get_all_notes()
         return {"notes": notes}
@@ -277,7 +280,7 @@ async def api_create_note(note: NoteCreate):
         raise HTTPException(status_code=500, detail="Failed to create note")
 
 @app.put("/api/notes/{note_id}")
-async def update_note(
+async def api_update_note(
     note_id: int,
     note: NoteUpdate,
     current_user: User = Depends(get_current_user)
@@ -318,7 +321,7 @@ async def update_note(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/api/notes/{note_id}")
-async def delete_note(
+async def api_delete_note(
     note_id: int,
     current_user: User = Depends(get_current_user)
 ):
@@ -326,15 +329,21 @@ async def delete_note(
         # First check if the note exists
         existing_note = get_note_by_id(note_id)
         if not existing_note:
-            raise HTTPException(status_code=404, detail="Note not found")
+            raise HTTPException(status_code=404, detail=f"Note with ID {note_id} not found")
 
-        if delete_note(note_id):
-            return {"message": "Note deleted successfully"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to delete note")
+        # Attempt to delete the note
+        success = delete_note(note_id)
+        if not success:
+            logger.error(f"Failed to delete note {note_id}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete note {note_id}")
+            
+        logger.info(f"Note {note_id} deleted successfully")
+        return {"message": "Note deleted successfully", "note_id": note_id}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error deleting note: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error deleting note {note_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error deleting note: {str(e)}")
 
 # File upload endpoints
 @app.post("/api/upload-pdf")
@@ -586,4 +595,4 @@ async def process_markdown(note: NoteContent):
 
 # Start the application
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=PORT, reload=True)

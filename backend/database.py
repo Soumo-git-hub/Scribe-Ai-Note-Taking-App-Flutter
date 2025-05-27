@@ -147,9 +147,13 @@ def save_note(title, content, is_markdown=False, summary=None, quiz=None, mindma
 
 def update_note(note_id, update_data):
     """Update an existing note in the database"""
+    conn = None
     try:
         conn = sqlite3.connect(str(DB_PATH))
         cursor = conn.cursor()
+        
+        # Always update the updated_at timestamp
+        update_data['updated_at'] = datetime.utcnow().isoformat()
         
         # Build the SET clause dynamically based on the update_data
         set_clause = ", ".join([f"{k} = ?" for k in update_data.keys()])
@@ -164,20 +168,29 @@ def update_note(note_id, update_data):
         values.append(note_id)
         
         cursor.execute(query, values)
-        conn.commit()
-        conn.close()
         
+        # Verify the update was successful
+        cursor.execute("SELECT id FROM notes WHERE id = ?", (note_id,))
+        if not cursor.fetchone():
+            logger.error(f"Note {note_id} not found after update attempt")
+            conn.rollback()
+            return False
+            
+        conn.commit()
         logger.info(f"Note {note_id} updated successfully")
         return True
     except Exception as e:
         logger.error(f"Error updating note: {str(e)}")
         if conn:
             conn.rollback()
-            conn.close()
         return False
+    finally:
+        if conn:
+            conn.close()
 
 def delete_note(note_id):
     """Delete a note from the database"""
+    conn = None
     try:
         conn = sqlite3.connect(str(DB_PATH))
         cursor = conn.cursor()
@@ -188,19 +201,28 @@ def delete_note(note_id):
             logger.warning(f"Note {note_id} not found for deletion")
             return False
         
+        # Delete the note
         cursor.execute("DELETE FROM notes WHERE id = ?", (note_id,))
         
+        # Verify the deletion
+        cursor.execute("SELECT id FROM notes WHERE id = ?", (note_id,))
+        if cursor.fetchone():
+            logger.error(f"Note {note_id} still exists after deletion attempt")
+            conn.rollback()
+            return False
+            
+        # If we get here, the deletion was successful
         conn.commit()
-        conn.close()
-        
         logger.info(f"Note {note_id} deleted successfully")
         return True
     except Exception as e:
         logger.error(f"Error deleting note {note_id}: {str(e)}")
         if conn:
             conn.rollback()
-            conn.close()
         return False
+    finally:
+        if conn:
+            conn.close()
 
 def create_user(username: str, email: str, password: str) -> int:
     try:

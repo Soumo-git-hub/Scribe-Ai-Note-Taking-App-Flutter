@@ -236,7 +236,18 @@ class ApiService {
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = await _handleResponse(response);
-        return Note.fromJson(data);
+        // Create a complete note object with default values for missing fields
+        return Note(
+          id: data['id'],
+          title: title,
+          content: content,
+          summary: summary,
+          quiz: quiz,
+          mindmap: mindmap,
+          isMarkdown: false,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
       }
       throw Exception('Failed to create note: ${response.statusCode}');
     } catch (e) {
@@ -300,7 +311,12 @@ class ApiService {
       print('Delete note response status: ${response.statusCode}');
       print('Delete note response body: ${response.body}');
 
-      await _handleResponse(response);
+      if (response.statusCode == 200 || response.statusCode == 204) {
+        return;
+      } else {
+        final data = await _handleResponse(response);
+        throw Exception(data['detail'] ?? 'Failed to delete note');
+      }
     } catch (e) {
       print('Delete note error: $e');
       rethrow;
@@ -632,7 +648,19 @@ class ApiService {
     );
 
     if (response.statusCode == 201) {
-      return Note.fromJson(jsonDecode(response.body));
+      final data = jsonDecode(response.body);
+      // Create a complete note object with default values for missing fields
+      return Note(
+        id: data['id'],
+        title: note.title,
+        content: note.content,
+        summary: note.summary,
+        quiz: note.quiz,
+        mindmap: note.mindmap,
+        isMarkdown: note.isMarkdown,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
     } else {
       throw Exception('Failed to save note: ${response.body}');
     }

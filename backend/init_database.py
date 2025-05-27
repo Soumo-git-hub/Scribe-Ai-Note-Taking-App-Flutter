@@ -2,6 +2,7 @@ import sqlite3
 import os
 import logging
 from pathlib import Path
+import bcrypt
 
 # Set up logging
 logging.basicConfig(
@@ -31,11 +32,23 @@ def initialize_database():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
             content TEXT NOT NULL,
+            is_markdown BOOLEAN DEFAULT 0,
             summary TEXT,
             quiz TEXT,
             mindmap TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        ''')
+        
+        # Create the users table
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         ''')
         
@@ -45,13 +58,25 @@ def initialize_database():
             ("Sample Note", "This is a sample note to verify the database is working correctly.")
         )
         
+        # Add a default user
+        hashed_password = bcrypt.hashpw("password123".encode('utf-8'), bcrypt.gensalt())
+        cursor.execute(
+            "INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
+            ("test", "test@example.com", hashed_password.decode('utf-8'))
+        )
+        
         conn.commit()
-        logger.info("Database initialized successfully with sample note")
+        logger.info("Database initialized successfully with sample note and default user")
         
         # Verify the note was added
         cursor.execute("SELECT * FROM notes")
         notes = cursor.fetchall()
         logger.info(f"Found {len(notes)} notes in the database")
+        
+        # Verify the user was added
+        cursor.execute("SELECT * FROM users")
+        users = cursor.fetchall()
+        logger.info(f"Found {len(users)} users in the database")
         
         conn.close()
         logger.info("Database connection closed")

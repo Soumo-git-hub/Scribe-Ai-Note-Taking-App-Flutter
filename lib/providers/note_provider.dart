@@ -73,11 +73,17 @@ class NoteProvider with ChangeNotifier {
     notifyListeners();
 
     try {
+      print('Attempting to delete note with ID: $id');
       await ApiService.deleteNote(id);
+      print('Successfully deleted note with ID: $id');
       _notes.removeWhere((note) => note.id == id);
       _error = null;
     } catch (e) {
+      print('Error deleting note: $e');
       _error = e.toString();
+      // Only reload notes if there was an error
+      print('Reloading notes after delete error');
+      await loadNotes();
     } finally {
       _isLoading = false;
       notifyListeners();

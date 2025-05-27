@@ -57,7 +57,7 @@ class Note {
       summary: json['summary'] ?? '',
       quiz: json['quiz'] ?? '',
       mindmap: mindmapData,
-      isMarkdown: json['is_markdown'] ?? false,
+      isMarkdown: json['is_markdown'] == 1 || json['is_markdown'] == true,
       createdAt: DateTime.parse(json['created_at']),
       updatedAt: DateTime.parse(json['updated_at']),
     );
